@@ -3,3 +3,10 @@ Usage
 
 make ex45
 
+
+./ex45 -dim 3 -simplex 1 -temp_petscspace_degree 1 -dm_view -ts_type beuler -ts_max_steps 20 -ts_dt 1.e0 -pc_type bjacobi -ksp_monitor_short -ksp_rtol 1.e-12 -ksp_converged_reason -snes_type ksponly -snes_monitor_short -snes_lag_jacobian 1  -snes_converged_reason -ts_monitor  -log_summary
+
+
+Skip refinement for baseline
+======
+./ex45 -dim 3 -simplex 1 -temp_petscspace_degree 1 -dm_view -ts_type beuler -ts_max_steps 20 -ts_dt 1.e0 -pc_type bjacobi -ksp_monitor_short -ksp_rtol 1.e-12 -ksp_converged_reason -snes_type ksponly -snes_monitor_short -snes_lag_jacobian 1  -snes_converged_reason -ts_monitor  -log_summary -skiprefine
