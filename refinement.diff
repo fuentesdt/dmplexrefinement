@@ -1,0 +1,107 @@
+diff --git a/ex45.c b/ex45.c
+index 099fa62..482dc70 100644
+--- a/ex45.c
++++ b/ex45.c
+@@ -28,9 +28,13 @@ Contributed by: Julian Andrej <juan@tf.uni-kiel.de>\n\n\n";
+ typedef struct {
+   PetscInt          dim;
+   PetscBool         simplex;
++  PetscBool         skiprefine;
+   PetscErrorCode (**exactFuncs)(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nf, PetscScalar *u, void *ctx);
+ } AppCtx;
+ 
++// FIXME - need interface update
++AppCtx         *_fixme_global_HACK_ctx;
++
+ static PetscErrorCode analytic_temp(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nf, PetscScalar *u, void *ctx)
+ {
+   PetscInt d;
+@@ -85,10 +89,12 @@ static PetscErrorCode ProcessOptions(MPI_Comm comm, AppCtx *options)
+   PetscFunctionBeginUser;
+   options->dim     = 2;
+   options->simplex = PETSC_TRUE;
++  options->skiprefine = PETSC_FALSE;
+ 
+   ierr = PetscOptionsBegin(comm, "", "Heat Equation Options", "DMPLEX");CHKERRQ(ierr);
+   ierr = PetscOptionsInt("-dim", "The topological mesh dimension", "ex45.c", options->dim, &options->dim, NULL);CHKERRQ(ierr);
+   ierr = PetscOptionsBool("-simplex", "Simplicial (true) or tensor (false) mesh", "ex45.c", options->simplex, &options->simplex, NULL);CHKERRQ(ierr);
++  ierr = PetscOptionsBool("-skiprefine", "test refinement", "ex45.c", options->skiprefine, &options->skiprefine, NULL);CHKERRQ(ierr);
+   ierr = PetscOptionsEnd();
+   PetscFunctionReturn(0);
+ }
+@@ -105,16 +111,45 @@ static PetscErrorCode CreateBCLabel(DM dm, const char name[])
+   ierr = DMPlexLabelComplete(dm, label);CHKERRQ(ierr);
+   PetscFunctionReturn(0);
+ }
++PetscErrorCode testrefinement(const PetscReal xloc[], PetscReal *volumelimit)
++{
++  PetscErrorCode ierr;
++  // FIXME - interface
++  const PetscReal testcentroid[3] = { -7.509e+01,-1.002e+02,-2.850e+02}; 
++  AppCtx *user= _fixme_global_HACK_ctx;
++
++  // FIXME - is this transpose ? 
++  double coord[3]= {xloc[0],xloc[1],xloc[2]};
++  //transform the point and return the intensity value
++  *volumelimit = 10000.;
++  //if ( user->EdgeData->ComputeStructuredCoordinates(coord,index,pcoord) )
++   {
++     bool refineelement = (PetscSqrtReal((coord[0] - testcentroid[0] )*(coord[0] - testcentroid[0] ) + (coord[1] - testcentroid[1] )*(coord[1] - testcentroid[1] ) + (coord[2] - testcentroid[2] )*(coord[2] - testcentroid[2] ) )  < 20.  )  ;
++
++     // refine at the edges
++     if (refineelement )
++      {
++        *volumelimit = 5.;
++      }
++     ierr = PetscPrintf(PETSC_COMM_WORLD, "(%10.3e,%10.3e,%10.3e) %d  %10.3e  \n",coord[0],coord[1],coord[2],refineelement, *volumelimit );CHKERRQ(ierr);
++   }
++   
++  PetscFunctionReturn(0);
++}
+ 
+ static PetscErrorCode CreateMesh(MPI_Comm comm, DM *dm, AppCtx *ctx)
+ {
+   DM             pdm = NULL;
+   const PetscInt dim = ctx->dim;
+-  PetscBool      hasLabel;
++  const PetscReal lower[3]= {-2.2480000e+02,-2.0000000e+02,-3.4500000e+02};
++  const PetscReal upper[3]= {1.7441875e+02, 1.9921875e+02,-2.6500000e+02};
++  PetscBool       hasLabel;
++  DM              refinedm = NULL;
+   PetscErrorCode ierr;
+ 
+   PetscFunctionBeginUser;
+-  ierr = DMPlexCreateBoxMesh(comm, dim, ctx->simplex, NULL, NULL, NULL, NULL, PETSC_TRUE, dm);CHKERRQ(ierr);
++
++  ierr = DMPlexCreateBoxMesh(comm, dim, ctx->simplex, NULL, lower, upper, NULL, PETSC_TRUE, dm);CHKERRQ(ierr);
+   ierr = PetscObjectSetName((PetscObject) *dm, "Mesh");CHKERRQ(ierr);
+   /* If no boundary marker exists, mark the whole boundary */
+   ierr = DMHasLabel(*dm, "marker", &hasLabel);CHKERRQ(ierr);
+@@ -127,6 +162,18 @@ static PetscErrorCode CreateMesh(MPI_Comm comm, DM *dm, AppCtx *ctx)
+   }
+   ierr = DMSetFromOptions(*dm);CHKERRQ(ierr);
+   ierr = DMViewFromOptions(*dm, NULL, "-dm_view");CHKERRQ(ierr);
++
++  ierr = DMPlexSetRefinementFunction(*dm, testrefinement);CHKERRQ(ierr);
++  ierr = DMPlexSetRefinementUniform(*dm, PETSC_FALSE);CHKERRQ(ierr);
++  if (!ctx->skiprefine) {
++  ierr = DMRefine(*dm, PetscObjectComm((PetscObject) dm), &refinedm);CHKERRQ(ierr);
++  }
++  if (refinedm) {
++    ierr = DMDestroy(dm);CHKERRQ(ierr);
++    *dm  = refinedm;
++  }
++  ierr = DMViewFromOptions(*dm, NULL, "-dm_view");CHKERRQ(ierr);
++
+   PetscFunctionReturn(0);
+ }
+ 
+@@ -201,6 +248,8 @@ int main(int argc, char **argv)
+   ierr = TSSetFromOptions(ts);CHKERRQ(ierr);
+ 
+   ierr = DMProjectFunction(dm, t, ctx.exactFuncs, NULL, INSERT_ALL_VALUES, u);CHKERRQ(ierr);
++  char               vtkfilenametemplate[PETSC_MAX_PATH_LEN] = "solution.%04d.vtu";
++  ierr = TSMonitorSet(ts,TSMonitorSolutionVTK,&vtkfilenametemplate,NULL);CHKERRQ(ierr);
+   ierr = TSSolve(ts, u);CHKERRQ(ierr);
+ 
+   ierr = TSGetTime(ts, &t);CHKERRQ(ierr);
